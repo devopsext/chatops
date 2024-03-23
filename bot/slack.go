@@ -542,6 +542,56 @@ func (s *Slack) findParams(command string, params []string, m *slackMessageInfo)
 	return r
 }
 
+/*
+func (s *Slack) fillParams(params common.ExecuteParams, fields []common.Field) common.ExecuteParams {
+
+	// filling params with default field values if silentdefault is set
+	for _, field := range fields { 
+		if !utils.IsEmpty(field.Default) &&
+			field.SilentDefault &&
+			utils.IsEmpty(params[field.Name]) {
+				params[field.Name] = fmt.Sprintf("%v", field.Default)
+			}
+	}
+	return params
+}
+
+func (s *Slack) templateField(field string, m *slackMessageInfo) string {
+	r := field
+	if strings.Contains(r,"*threadTS*") {
+		r = strings.ReplaceAll(r,"*threadTS*","")+m.channelID
+		if !utils.IsEmpty(m.threadTimestamp) {
+			r +="/p"+m.threadTimestamp
+		}
+	}
+	if strings.Contains(r,"*now*") {
+		d := time.Now().Format("2006-01-02")
+		r = strings.ReplaceAll(r,"*now*",d)
+	}
+	return r
+}
+
+func (s *Slack) templateFields(fields []common.Field, m *slackMessageInfo) []common.Field {
+	flds := append([]common.Field{},fields...)
+	for k, f := range flds {
+		// replacing in Values
+		for n, v := range f.Values { 
+			flds[k].Values[n] = s.templateField(v, m)	
+		}
+		// replacing in Default
+		flds[k].Default = s.templateField(f.Default, m)
+	}
+	return flds
+}*/
+
+func (s *Slack) generateThreadUrl(m *slackMessageInfo) string {
+	slackpath := m.channelID
+	if !utils.IsEmpty(m.threadTimestamp) {
+		slackpath +="/p"+m.threadTimestamp
+	}
+	return slackpath
+}
+
 func (s *Slack) updateCounters(group, command, text, userID string) {
 
 	labels := make(map[string]string)
@@ -1028,8 +1078,12 @@ func (s *Slack) defCommandDefinition(cmd common.Command, group string) *slacker.
 			}
 		}
 
+		//eFields := s.templateFields(fields, m)
 		eParams := s.findParams(cName, params, m)
+		eParams["slackpath"] = s.generateThreadUrl(m)
+		//eParams = s.fillParams(eParams, eFields) // filling defaults if silentdefault set to true
 		if s.interactionNeeded(fields, eParams) {
+			//shown, err := s.replyInteraction(cName, group, eFields, eParams, m, user, replier)
 			shown, err := s.replyInteraction(cName, group, fields, eParams, m, user, replier)
 			if err != nil {
 				s.replyError(cName, m, replier, err, []*common.Attachment{})
@@ -1206,6 +1260,8 @@ func (s *Slack) defInteractionDefinition(cmd common.Command, group string) *slac
 					}
 				}
 			}
+
+			params["slackpath"] = s.generateThreadUrl(m)
 
 			err = s.postCommand(cmd, m, user, replier, params)
 			if err != nil {

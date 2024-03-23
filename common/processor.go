@@ -39,13 +39,14 @@ type Response interface {
 type FieldType string
 
 type Field struct {
-	Name     string
-	Type     FieldType
-	Label    string
-	Default  string
-	Hint     string
-	Required bool
-	Values   []string
+	Name     		string
+	Type     		FieldType
+	Label    		string
+	Default  		string
+	//SilentDefault 	bool // if set to yes - default will be used without showing interaction form if other required fields are set
+	Hint     		string
+	Required 		bool
+	Values   		[]string
 }
 
 type Executor interface {
