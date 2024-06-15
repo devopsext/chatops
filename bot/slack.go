@@ -204,6 +204,10 @@ func (sm *SlackMessage) ParentID() string {
 	return sm.threadTimestamp
 }
 
+func (sm *SlackMessage) SetID(id string) {
+	sm.id = id
+}
+
 // Slack
 
 func (s *Slack) Name() string {
@@ -1344,15 +1348,13 @@ func (s *Slack) hideInteraction(m *slackMessageInfo, responseURL string) {
 	)
 }
 
-func (s *Slack) Post(channel string, message string, attachments []*common.Attachment, parent common.Message) error {
-
+func (s *Slack) Post(channel, message string, attachments []*common.Attachment, parent common.Message) (string, error) {
 	channelID := channel
 	threadTS := ""
 	visible := true
 	userID := ""
 
-	if !utils.IsEmpty(parent) {
-
+	if parent != nil {
 		threadTS = parent.ID()
 		p, ok := parent.(*SlackMessage)
 		if ok {
@@ -1371,7 +1373,7 @@ func (s *Slack) Post(channel string, message string, attachments []*common.Attac
 
 	atts, err := s.buildAttachmentBlocks(attachments)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	blocks := []slack.Block{}
@@ -1393,8 +1395,8 @@ func (s *Slack) Post(channel string, message string, attachments []*common.Attac
 	}
 
 	client := s.client.SlackClient()
-	_, _, err = client.PostMessage(channelID, options...)
-	return err
+	_, ts, err := client.PostMessage(channelID, options...)
+	return ts, err
 }
 
 func (s *Slack) interactionDefinition(cmd common.Command, group string) *slacker.InteractionDefinition {

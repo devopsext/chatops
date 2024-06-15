@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devopsext/chatops/bot"
 	"github.com/devopsext/chatops/common"
 	sreCommon "github.com/devopsext/sre/common"
 	toolsRender "github.com/devopsext/tools/render"
@@ -237,7 +238,53 @@ func (de *DefaultExecutor) fRunTemplate(fileName string, obj interface{}) (strin
 	return de.template.TemplateRenderFile(s, obj)
 }
 
-func (de *DefaultExecutor) fSendMessageEx(message, channels string, params map[string]interface{}) (string, error) {
+func (de *DefaultExecutor) fSendMessageWithAttachment(message, channels, threadTs, attachmentTitle, attachmentText string, attachmentData interface{}, attachmentType string) (string, error) {
+	if utils.IsEmpty(message) {
+		return "", fmt.Errorf("SendMessageEx err => %s", "empty message")
+	}
+
+	if utils.IsEmpty(channels) {
+		return "", fmt.Errorf("SendMessageEx err => %s", "no channels")
+	}
+
+	chnls := strings.Split(channels, ",")
+	chnls = common.RemoveEmptyStrings(chnls)
+
+	if len(chnls) == 0 {
+		return "", fmt.Errorf("SendMessageEx err => %s", "no channels")
+	}
+
+	var atts []*common.Attachment
+	dBytes, ok := attachmentData.([]byte)
+	if !ok {
+		s := fmt.Sprintf("%v", attachmentData)
+		dBytes = []byte(s)
+	}
+
+	att := &common.Attachment{
+		Title: attachmentTitle,
+		Text:  attachmentText,
+		Data:  dBytes,
+		Type:  common.AttachmentType(attachmentType),
+	}
+	atts = append(atts, att)
+
+	var ts string
+	var err error
+	for _, ch := range chnls {
+		parent := bot.SlackMessage{}
+		parent.SetID(threadTs)
+		ts, err = de.bot.Post(ch, message, atts, &parent)
+
+		if err != nil {
+			de.command.logger.Error(err)
+		}
+	}
+
+	return ts, err
+}
+
+func (de *DefaultExecutor) fSendMessageEx(message, channels, threadTs string, params map[string]interface{}) (string, error) {
 
 	if utils.IsEmpty(message) {
 		return "", fmt.Errorf("SendMessageEx err => %s", "empty message")
@@ -271,20 +318,23 @@ func (de *DefaultExecutor) fSendMessageEx(message, channels string, params map[s
 		}
 	}
 
+	var ts string
 	var err error
 	for _, ch := range chnls {
-		e := de.bot.Post(ch, message, atts, nil)
-		if e != nil {
-			de.command.logger.Error(e)
-			err = e
+		parent := bot.SlackMessage{}
+		parent.SetID(threadTs)
+		ts, err = de.bot.Post(ch, message, atts, &parent)
+
+		if err != nil {
+			de.command.logger.Error(err)
 		}
 	}
 
-	return "", err
+	return ts, err
 }
 
-func (de *DefaultExecutor) fSendMessage(message, channels string) (string, error) {
-	return de.fSendMessageEx(message, channels, nil)
+func (de *DefaultExecutor) fSendMessage(message, channels, threadTs string) (string, error) {
+	return de.fSendMessageEx(message, channels, threadTs, nil)
 }
 
 func (de *DefaultExecutor) fSetInvisible() string {
@@ -440,7 +490,7 @@ func (de *DefaultExecutor) After(message common.Message) error {
 				return
 			}
 
-			err = de.bot.Post(channel.ID(), text, atts, message)
+			_, err = de.bot.Post(channel.ID(), text, atts, message)
 			if err != nil {
 				logger.Error(err)
 				return
@@ -471,6 +521,7 @@ func NewExecutorTemplate(name string, path string, executor *DefaultExecutor, ob
 	funcs["postTemplate"] = executor.fPostTemplate
 	funcs["sendMessage"] = executor.fSendMessage
 	funcs["sendMessageEx"] = executor.fSendMessageEx
+	funcs["sendMessageWithAttachment"] = executor.fSendMessageWithAttachment
 	funcs["setInvisible"] = executor.fSetInvisible
 	funcs["setError"] = executor.fSetError
 	funcs["deleteMessage"] = executor.fDeleteMessage
