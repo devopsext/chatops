@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -429,6 +430,36 @@ func (de *DefaultExecutor) fGetChannel() interface{} {
 	return de.message.Channel()
 }
 
+func (de *DefaultExecutor) fCountOccurrences(list []interface{}) map[string]int {
+	occurrences := make(map[string]int)
+	for _, item := range list {
+		occurrences[item.(string)]++
+	}
+
+	return occurrences
+}
+
+func (de *DefaultExecutor) fSortOccurrences(occurrences map[string]int, sep string, count int) []string {
+	keys := make([]string, 0, len(occurrences))
+	for k := range occurrences {
+		keys = append(keys, k)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return occurrences[keys[i]] > occurrences[keys[j]]
+	})
+
+	sortedKeyValues := make([]string, 0, len(keys))
+	for _, k := range keys {
+		sortedKeyValues = append(sortedKeyValues, k+sep+strconv.Itoa(occurrences[k]))
+	}
+
+	if count > len(sortedKeyValues) {
+		return sortedKeyValues
+	}
+	return sortedKeyValues[:count]
+}
+
 func (de *DefaultExecutor) render(obj interface{}) (string, []*common.Attachment, error) {
 
 	gid := utils.GoRoutineID()
@@ -678,6 +709,8 @@ func NewExecutorTemplate(name string, content string, executor *DefaultExecutor,
 	funcs["getParams"] = executor.fGetParams
 	funcs["getMessage"] = executor.fGetMessage
 	funcs["getChannel"] = executor.fGetChannel
+	funcs["countOccurrences"] = executor.fCountOccurrences
+	funcs["sortOccurrences"] = executor.fSortOccurrences
 
 	templateOpts := toolsRender.TemplateOptions{
 		Name:    fmt.Sprintf("default-internal-%s", name),
