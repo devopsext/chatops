@@ -578,19 +578,27 @@ func (de *DefaultExecutor) defaultAfter(post *DefaultPost, parent common.Message
 		return nil
 	}
 
-	if utils.IsEmpty(text) {
-		return nil
+	if !utils.IsEmpty(text) {
+		m := parent
+		if skipParent {
+			m = nil
+		}
+
+		err = de.bot.PostMessage(channel.ID(), text, atts, user, m, de.Response())
+		if err != nil {
+			return err
+		}
 	}
 
-	m := parent
-	if skipParent {
-		m = nil
+	gid := utils.GoRoutineID()
+	newPosts, ok := executor.posts.LoadAndDelete(gid)
+	if ok {
+		err = de.after(newPosts.([]*DefaultPost), parent, skipParent, false)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = de.bot.PostMessage(channel.ID(), text, atts, user, m, de.Response())
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -685,13 +693,26 @@ func (de *DefaultExecutor) After(message common.Message) error {
 		posts = r.([]*DefaultPost)
 	}
 
-	err := de.after(posts, message, false, false)
+	if len(posts) > 0 {
+		parentPost := posts[0]
+		nestedPosts := posts[1:]
+
+		err := de.defaultAfter(parentPost, message, false)
+		if err != nil {
+			return err
+		}
+
+		err = de.after(nestedPosts, message, false, false)
+		if err != nil {
+			return err
+		}
+	}
 
 	de.posts.Range(func(key, value any) bool {
 		de.posts.Delete(key)
 		return true
 	})
-	return err
+	return nil
 }
 
 func NewExecutorTemplate(name string, content string, executor *DefaultExecutor, observability *common.Observability) (*toolsRender.TextTemplate, error) {
