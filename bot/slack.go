@@ -84,6 +84,10 @@ type SlackMessage struct {
 	blocks      []slack.Block
 }
 
+func NewSlackMessage(id string, visible bool, threadTS string, user *SlackUser, channel *SlackChannel) *SlackMessage {
+	return &SlackMessage{id: id, visible: visible, threadTS: threadTS, user: user, channel: channel}
+}
+
 type SlackFileResponseFull struct {
 	slack.File   `json:"file"`
 	slack.Paging `json:"paging"`
@@ -105,18 +109,19 @@ type SlackCompleteUploadExternalResponse struct {
 }
 
 type Slack struct {
-	options           SlackOptions
-	processors        *common.Processors
-	client            *slacker.Slacker
-	ctx               context.Context
-	auth              *slack.AuthTestResponse
-	logger            sreCommon.Logger
-	meter             sreCommon.Meter
-	defaultDefinition *slacker.CommandDefinition
-	helpDefinition    *slacker.CommandDefinition
-	actions           *ttlcache.Cache[string, *SlackAction]
-	buttons           *ttlcache.Cache[string, *SlackButton]
-	fields            *ttlcache.Cache[string, common.ExecuteParams]
+	options            SlackOptions
+	processors         *common.Processors
+	client             *slacker.Slacker
+	ctx                context.Context
+	auth               *slack.AuthTestResponse
+	logger             sreCommon.Logger
+	meter              sreCommon.Meter
+	defaultDefinition  *slacker.CommandDefinition
+	helpDefinition     *slacker.CommandDefinition
+	actions            *ttlcache.Cache[string, *SlackAction]
+	buttons            *ttlcache.Cache[string, *SlackButton]
+	fields             *ttlcache.Cache[string, common.ExecuteParams]
+	lastPostedMessages sync.Map
 }
 
 type SlackRichTextQuoteElement struct {
@@ -2556,8 +2561,11 @@ func (s *Slack) PostMessage(channel string, text string,
 	}
 
 	client := s.client.SlackClient()
-	_, timeStamp, err := client.PostMessage(channelID, options...)
-	return timeStamp, err
+	_, timestamp, err := client.PostMessage(channelID, options...)
+	if err == nil {
+		s.lastPostedMessages.Store(channelID, timestamp)
+	}
+	return "", err
 }
 
 func (s *Slack) getActionValue(field *common.Field, state slack.BlockAction) interface{} {
@@ -3483,6 +3491,14 @@ func (t *Slack) Start(wg *sync.WaitGroup) {
 		defer wg.Done()
 		t.start()
 	}(wg)
+}
+
+func (s *Slack) GetLastMessageID(channelID string) (string, error) {
+	lastMessageID, ok := s.lastPostedMessages.Load(channelID)
+	if !ok {
+		return "", fmt.Errorf("no message found for channel %s", channelID)
+	}
+	return lastMessageID.(string), nil
 }
 
 func NewSlack(options SlackOptions, observability *common.Observability, processors *common.Processors) *Slack {

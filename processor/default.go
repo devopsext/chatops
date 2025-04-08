@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devopsext/chatops/bot"
 	"github.com/devopsext/chatops/common"
 	sreCommon "github.com/devopsext/sre/common"
 	toolsRender "github.com/devopsext/tools/render"
@@ -55,9 +56,10 @@ type DefaultRunbook struct {
 type DefaultPostKind = int
 
 const (
-	DefaultPostKindTemplate = 0
-	DefaultPostKindCommand  = 1
-	DefaultPostKindRunbook  = 2
+	DefaultPostKindTemplate       = 0
+	DefaultPostKindCommand        = 1
+	DefaultPostKindRunbook        = 2
+	DefaultPostKindTemplateParent = 3
 )
 
 type DefaultPost struct {
@@ -242,6 +244,11 @@ func (de *DefaultExecutor) fPostCommand(fileName string, obj interface{}) string
 func (de *DefaultExecutor) fPostTemplate(fileName string, obj interface{}) string {
 	s := de.filePath(de.command.processor.options.TemplatesDir, fileName)
 	return de.fPostFile(s, obj, DefaultPostKindTemplate)
+}
+
+func (de *DefaultExecutor) fPostTemplateParent(fileName string, obj interface{}) string {
+	s := de.filePath(de.command.processor.options.TemplatesDir, fileName)
+	return de.fPostFile(s, obj, DefaultPostKindTemplateParent)
 }
 
 func (de *DefaultExecutor) fPostBook(fileName string, obj interface{}) string {
@@ -639,7 +646,6 @@ func (de *DefaultExecutor) execute(id string, obj interface{}) (string, []*commo
 }
 
 func (de *DefaultExecutor) defaultAfter(post *DefaultPost, parent common.Message, skipParent bool) error {
-
 	var text string
 	var atts []*common.Attachment
 
@@ -664,19 +670,54 @@ func (de *DefaultExecutor) defaultAfter(post *DefaultPost, parent common.Message
 		return nil
 	}
 
-	if utils.IsEmpty(text) {
-		return nil
+	if !utils.IsEmpty(text) {
+		m := parent
+		if skipParent || post.Kind == DefaultPostKindTemplateParent {
+			m = nil
+		}
+
+		_, err = de.bot.PostMessage(channel.ID(), text, atts, acts, user, m, de.Response())
+		if err != nil {
+			return err
+		}
+
+		var newParentMessage common.Message
+
+		if post.Kind == DefaultPostKindTemplateParent {
+			messageID, err := de.bot.GetLastMessageID(channel.ID())
+			if err != nil {
+				return err
+			}
+
+			slackUser, ok := user.(*bot.SlackUser)
+			if !ok {
+				return fmt.Errorf("failed to cast user to *bot.SlackUser")
+			}
+			channel, ok := channel.(*bot.SlackChannel)
+			if !ok {
+				return fmt.Errorf("failed to cast user to *bot.SlackUser")
+			}
+			newParentMessage = bot.NewSlackMessage(messageID, true, messageID, slackUser, channel)
+			//newParentMessage = common.NewMessage(messageID, channel, text, user)
+		} else {
+			newParentMessage = parent
+		}
+
+		gid := utils.GoRoutineID()
+		newPosts, ok := executor.posts.LoadAndDelete(gid)
+		if ok {
+			if post.Kind == DefaultPostKindTemplateParent {
+				err = de.after(newPosts.([]*DefaultPost), newParentMessage, false, false)
+			} else {
+				err = de.after(newPosts.([]*DefaultPost), parent, skipParent, false)
+			}
+
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	m := parent
-	if skipParent {
-		m = nil
-	}
-
-	_, err = de.bot.PostMessage(channel.ID(), text, atts, acts, user, m, de.Response())
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -762,7 +803,6 @@ func (de *DefaultExecutor) after(posts []*DefaultPost, message common.Message, s
 }
 
 func (de *DefaultExecutor) After(message common.Message) error {
-
 	gid := utils.GoRoutineID()
 	var posts []*DefaultPost
 
@@ -771,13 +811,62 @@ func (de *DefaultExecutor) After(message common.Message) error {
 		posts = r.([]*DefaultPost)
 	}
 
-	err := de.after(posts, message, false, false)
+	if len(posts) > 0 {
+		var parentPosts []*DefaultPost
+		var nonParentPosts []*DefaultPost
+
+		var firstNonParent *DefaultPost
+		for _, post := range posts {
+			if post.Kind == DefaultPostKindTemplateParent {
+				parentPosts = append(parentPosts, post)
+			} else {
+				if firstNonParent == nil {
+					firstNonParent = post
+				} else {
+					nonParentPosts = append(nonParentPosts, post)
+				}
+			}
+		}
+
+		if len(parentPosts) == 0 && firstNonParent != nil {
+			err := de.defaultAfter(firstNonParent, message, false)
+			if err != nil {
+				return err
+			}
+
+			err = de.after(nonParentPosts, message, false, false)
+			if err != nil {
+				return err
+			}
+		} else {
+			for _, parentPost := range parentPosts {
+				err := de.defaultAfter(parentPost, message, false)
+				if err != nil {
+					return err
+				}
+			}
+
+			if firstNonParent != nil {
+				err := de.defaultAfter(firstNonParent, message, false)
+				if err != nil {
+					return err
+				}
+
+				if len(nonParentPosts) > 0 {
+					err = de.after(nonParentPosts, message, false, false)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
 
 	de.posts.Range(func(key, value any) bool {
 		de.posts.Delete(key)
 		return true
 	})
-	return err
+	return nil
 }
 
 func NewExecutorTemplate(name string, content string, executor *DefaultExecutor, observability *common.Observability) (*toolsRender.TextTemplate, error) {
@@ -796,6 +885,7 @@ func NewExecutorTemplate(name string, content string, executor *DefaultExecutor,
 	funcs["postFile"] = executor.fPostFile
 	funcs["postCommand"] = executor.fPostCommand
 	funcs["postTemplate"] = executor.fPostTemplate
+	funcs["postTemplateParent"] = executor.fPostTemplateParent
 	funcs["postBook"] = executor.fPostBook
 	funcs["sendMessage"] = executor.fSendMessage
 	funcs["sendMessageByParent"] = executor.fSendMessageByParent

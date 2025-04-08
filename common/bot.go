@@ -17,6 +17,7 @@ type Bot interface {
 	DeleteMessage(channel, ID string) error
 	ReadMessage(channel, ID string) (string, error)
 	UpdateMessage(channel, ID, text string) error
+	GetLastMessageID(channelID string) (string, error)
 }
 
 type Bots struct {
