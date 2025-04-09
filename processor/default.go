@@ -814,10 +814,13 @@ func (de *DefaultExecutor) After(message common.Message) error {
 	if len(posts) > 0 {
 		var parentPosts []*DefaultPost
 		var nonParentPosts []*DefaultPost
+		var runbookPosts []*DefaultPost
 
 		var firstNonParent *DefaultPost
 		for _, post := range posts {
-			if post.Kind == DefaultPostKindTemplateParent {
+			if post.Kind == DefaultPostKindRunbook {
+				runbookPosts = append(runbookPosts, post)
+			} else if post.Kind == DefaultPostKindTemplateParent {
 				parentPosts = append(parentPosts, post)
 			} else {
 				if firstNonParent == nil {
@@ -828,6 +831,12 @@ func (de *DefaultExecutor) After(message common.Message) error {
 			}
 		}
 
+		if len(runbookPosts) != 0 {
+			err := de.after(runbookPosts, message, false, false)
+			if err != nil {
+				return err
+			}
+		}
 		if len(parentPosts) == 0 && firstNonParent != nil {
 			err := de.defaultAfter(firstNonParent, message, false)
 			if err != nil {
