@@ -220,6 +220,13 @@ const (
 	slackApprovalDescriptionCaption = "Description"
 )
 
+func (m *SlackMessage) GetOriginTimestamp() string {
+	if m.originKey == nil || m.originKey.timestamp == "" {
+		return ""
+	}
+	return m.originKey.timestamp
+}
+
 // SlackUserGroups
 
 func (ugs *SlackUserGroups) refresh() {
