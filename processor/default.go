@@ -277,6 +277,11 @@ func (de *DefaultExecutor) filePath(dir, fileName string) string {
 	return fmt.Sprintf("%s%s%s", dir, string(os.PathSeparator), fileName)
 }
 
+func (de *DefaultExecutor) fAbort() string {
+	os.Exit(0)
+	return ""
+}
+
 func (de *DefaultExecutor) fPostFile(path string, obj interface{}, kind DefaultPostKind) string {
 
 	gid := utils.GoRoutineID()
@@ -1010,6 +1015,8 @@ func (de *DefaultExecutor) After(message common.Message) error {
 func NewExecutorTemplate(name string, content string, executor *DefaultExecutor, observability *common.Observability) (*toolsRender.TextTemplate, error) {
 
 	funcs := make(map[string]any)
+
+	funcs["abort"] = executor.fAbort
 
 	funcs["addFile"] = executor.fAddFile
 	funcs["addAttachment"] = executor.fAddAttachment
