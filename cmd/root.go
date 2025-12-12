@@ -25,7 +25,7 @@ import (
 var version = "unknown"
 var APPNAME = "CHATOPS"
 
-var logs = sreCommon.NewLogs()
+var logs = sreCommon.NewJsonLogs()
 var metrics = sreCommon.NewMetrics()
 var stdout *sreProvider.Stdout
 var mainWG sync.WaitGroup

@@ -5,7 +5,7 @@ import (
 )
 
 type Observability struct {
-	logs    *sre.Logs
+	logs    *sre.JsonLogs
 	metrics *sre.Metrics
 }
 
@@ -39,7 +39,7 @@ func (o *Observability) Panic(obj interface{}, args ...interface{}) {
 	}
 }
 
-func (o *Observability) Logs() *sre.Logs {
+func (o *Observability) Logs() *sre.JsonLogs {
 	return o.logs
 }
 
@@ -47,7 +47,7 @@ func (o *Observability) Metrics() *sre.Metrics {
 	return o.metrics
 }
 
-func NewObservability(logs *sre.Logs, metrics *sre.Metrics) *Observability {
+func NewObservability(logs *sre.JsonLogs, metrics *sre.Metrics) *Observability {
 
 	return &Observability{
 		logs:    logs,

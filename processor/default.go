@@ -904,7 +904,7 @@ func (de *DefaultExecutor) execute(id string, obj interface{}, message common.Me
 		}
 	}
 
-	logger.Debug("Default is executing command %s %swith params %v...", name, ids, params)
+	logger.Debug("Default is executing command %s %s with params %v...", name, ids, params)
 
 	text, atts, acts, err := de.render(obj)
 	if err != nil {
@@ -915,7 +915,7 @@ func (de *DefaultExecutor) execute(id string, obj interface{}, message common.Me
 	elapsed := time.Since(t1).Milliseconds()
 	timeCounter.Add(int(elapsed))
 
-	logger.Debug("Default is executed command %s %swith params %v in %s", name, ids, params, time.Since(t1))
+	logger.Debug("Default is executed command %s %s with params %v in %s", name, ids, params, time.Since(t1))
 
 	return text, atts, acts, nil
 }
