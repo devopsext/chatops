@@ -602,10 +602,14 @@ func (sm *SlackMessage) fieldValueToString(field *SlackMessageField, value inter
 	switch field.Type() {
 	case common.FieldTypeMultiSelect, common.FieldTypeDynamicMultiSelect:
 		switch v := value.(type) {
-		case []string:
-			r = strings.Join(v, ",")
 		case string:
-			r = v
+			if field.Type() == common.FieldTypeDynamicMultiSelect {
+				r = strings.ToLower(v)
+			} else {
+				r = v
+			}
+		default:
+			r = fmt.Sprintf("%v", value)
 		}
 	default:
 		r = fmt.Sprintf("%v", value)
@@ -2445,7 +2449,16 @@ func (s *Slack) formBlocks(cmd common.Command, fields SlackMessageFields, params
 					options = append(options, slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h))
 				}
 			} else if !utils.IsEmpty(def) {
-				dBlock = slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h)
+				// Case-insensitive match for dynamic select
+				for _, v := range currentValues {
+					if strings.EqualFold(v, def) {
+						dBlock = slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h)
+						break
+					}
+				}
+				if dBlock == nil {
+					dBlock = slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h)
+				}
 			}
 			addToBlocks = addToBlocks && (len(options) > 0 || fType == common.FieldTypeDynamicSelect)
 			if addToBlocks {
@@ -2478,9 +2491,16 @@ func (s *Slack) formBlocks(cmd common.Command, fields SlackMessageFields, params
 				}
 			} else if !utils.IsEmpty(def) {
 				arr := s.parseArrayValues(def)
-				for _, v := range arr {
+				for _, v := range currentValues {
 					block := slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h)
-					dBlocks = append(dBlocks, block)
+					// Case-insensitive match for dynamic multi-select
+					for _, a := range arr {
+						if strings.EqualFold(a, v) {
+							dBlocks = append(dBlocks, block)
+							break
+						}
+					}
+					options = append(options, block)
 				}
 			}
 			addToBlocks = addToBlocks && (len(options) > 0 || fType == common.FieldTypeDynamicMultiSelect)
@@ -3553,9 +3573,10 @@ func (s *Slack) Command(channel, text string, user common.User, parent common.Me
 			user:        mUser,
 			caller:      mUser,
 			botID:       "",
+			visible:     r.visible,
 			responseURL: "",
-			blocks:      nil,
-			actions:     nil,
+			blocks:      blocks,
+			actions:     actions,
 			params:      params,
 		}
 	}
@@ -3730,7 +3751,7 @@ func (s *Slack) PostMessage(channel string, message string, attachments []*commo
 			responseURL: "",
 			blocks:      blocks,
 			actions:     actions,
-			params:      nil,
+			params:      params,
 		}
 		s.putMessageToCache(m)
 	}
