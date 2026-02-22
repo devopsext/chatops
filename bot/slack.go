@@ -613,14 +613,10 @@ func (sm *SlackMessage) fieldValueToString(field *SlackMessageField, value inter
 	switch field.Type() {
 	case common.FieldTypeMultiSelect, common.FieldTypeDynamicMultiSelect:
 		switch v := value.(type) {
+		case []string:
+			r = strings.Join(v, ",")
 		case string:
-			if field.Type() == common.FieldTypeDynamicMultiSelect {
-				r = strings.ToLower(v)
-			} else {
-				r = v
-			}
-		default:
-			r = fmt.Sprintf("%v", value)
+			r = v
 		}
 	default:
 		r = fmt.Sprintf("%v", value)
@@ -2492,16 +2488,7 @@ func (s *Slack) formBlocks(cmd common.Command, fields SlackMessageFields, params
 					options = append(options, slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h))
 				}
 			} else if !utils.IsEmpty(def) {
-				// Case-insensitive match for dynamic select
-				for _, v := range currentValues {
-					if strings.EqualFold(v, def) {
-						dBlock = slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h)
-						break
-					}
-				}
-				if dBlock == nil {
-					dBlock = slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h)
-				}
+				dBlock = slack.NewOptionBlockObject(def, slack.NewTextBlockObject(slack.PlainTextType, def, false, false), h)
 			}
 			addToBlocks = addToBlocks && (len(options) > 0 || fType == common.FieldTypeDynamicSelect)
 			if addToBlocks {
@@ -2534,16 +2521,9 @@ func (s *Slack) formBlocks(cmd common.Command, fields SlackMessageFields, params
 				}
 			} else if !utils.IsEmpty(def) {
 				arr := s.parseArrayValues(def)
-				for _, v := range currentValues {
+				for _, v := range arr {
 					block := slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h)
-					// Case-insensitive match for dynamic multi-select
-					for _, a := range arr {
-						if strings.EqualFold(a, v) {
-							dBlocks = append(dBlocks, block)
-							break
-						}
-					}
-					options = append(options, block)
+					dBlocks = append(dBlocks, block)
 				}
 			}
 			addToBlocks = addToBlocks && (len(options) > 0 || fType == common.FieldTypeDynamicMultiSelect)
@@ -2647,31 +2627,13 @@ func (s *Slack) formBlocks(cmd common.Command, fields SlackMessageFields, params
 			el = e
 		case common.FieldTypeGroup:
 			options := []*slack.OptionBlockObject{}
-			var dBlock *slack.OptionBlockObject
-			if !utils.IsEmpty(def) {
-				groupName := s.findUserGroupNameByID(s.userGroups.items, def)
-				dBlock = slack.NewOptionBlockObject(groupName, slack.NewTextBlockObject(slack.PlainTextType, groupName, false, false), h)
-			}
 			e := slack.NewOptionsSelectBlockElement(slack.OptTypeExternal, h, actionID, options...)
-			if dBlock != nil {
-				e.InitialOption = dBlock
-			}
 			min := s.options.MinQueryLength
 			e.MinQueryLength = &min
 			el = e
 		case common.FieldTypeMultiGroup:
 			options := []*slack.OptionBlockObject{}
-			dBlocks := []*slack.OptionBlockObject{}
-			arr := s.parseArrayValues(def)
-			for _, v := range arr {
-				groupName := s.findUserGroupNameByID(s.userGroups.items, v)
-				block := slack.NewOptionBlockObject(groupName, slack.NewTextBlockObject(slack.PlainTextType, groupName, false, false), h)
-				dBlocks = append(dBlocks, block)
-			}
 			e := slack.NewOptionsMultiSelectBlockElement(slack.MultiOptTypeExternal, h, actionID, options...)
-			if len(dBlocks) > 0 {
-				e.InitialOptions = dBlocks
-			}
 			min := s.options.MinQueryLength
 			e.MinQueryLength = &min
 			el = e
@@ -3616,10 +3578,9 @@ func (s *Slack) Command(channel, text string, user common.User, parent common.Me
 			user:        mUser,
 			caller:      mUser,
 			botID:       "",
-			visible:     r.visible,
 			responseURL: "",
-			blocks:      blocks,
-			actions:     actions,
+			blocks:      nil,
+			actions:     nil,
 			params:      params,
 		}
 	}
@@ -3794,7 +3755,7 @@ func (s *Slack) PostMessage(channel string, message string, attachments []*commo
 			responseURL: "",
 			blocks:      blocks,
 			actions:     actions,
-			params:      params,
+			params:      nil,
 		}
 		s.putMessageToCache(m)
 	}
@@ -4465,35 +4426,52 @@ func (s *Slack) handleBlockSuggestion(ctx *slacker.InteractionContext, req *sock
 		values = revls
 	}
 
-	re, _ := regexp.Compile(value)
-	if re != nil {
-
+	// Case-insensitive, partial matching - only return results if user typed something
+	// Collect matches first, then sort by relevance:
+	// 1) index of match (prefix matches first), 2) shorter names, 3) alphabetical (case-insensitive)
+	query := strings.ToLower(value)
+	if !utils.IsEmpty(query) {
+		matches := []string{}
 		for _, v := range values {
+			if strings.Contains(strings.ToLower(v), query) {
+				matches = append(matches, v)
+			}
+		}
 
+		sort.Slice(matches, func(i, j int) bool {
+			li := strings.ToLower(matches[i])
+			lj := strings.ToLower(matches[j])
+			ii := strings.Index(li, query)
+			ij := strings.Index(lj, query)
+			if ii != ij {
+				return ii < ij
+			}
+			if len(matches[i]) != len(matches[j]) {
+				return len(matches[i]) < len(matches[j])
+			}
+			return li < lj
+		})
+
+		for _, v := range matches {
 			if len(options) >= s.options.MaxQueryOptions {
 				break
 			}
-
-			if re.MatchString(v) {
-
-				var h *slack.TextBlockObject
-				if !utils.IsEmpty(fHint) {
-					h = slack.NewTextBlockObject(slack.PlainTextType, fHint, false, false)
-				}
-
-				options = append(options,
-					slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h))
+			var h *slack.TextBlockObject
+			if !utils.IsEmpty(fHint) {
+				h = slack.NewTextBlockObject(slack.PlainTextType, fHint, false, false)
 			}
+			options = append(options,
+				slack.NewOptionBlockObject(v, slack.NewTextBlockObject(slack.PlainTextType, v, false, false), h))
 		}
 	}
 
-	resposne := slack.OptionsResponse{
+	response := slack.OptionsResponse{
 		Options: options,
 	}
 
 	res := socketmode.Response{
 		EnvelopeID: req.EnvelopeID,
-		Payload:    resposne,
+		Payload:    response,
 	}
 
 	err := s.client.SocketModeClient().SendCtx(s.ctx, res)
