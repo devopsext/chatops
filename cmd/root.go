@@ -17,6 +17,12 @@ import (
 	"github.com/devopsext/chatops/server"
 	"github.com/slack-go/slack"
 
+	// pprof is always enabled on the Prometheus listener because importing this
+	// package registers its handlers on DefaultServeMux via init(). The Prometheus
+	// sre provider calls http.Serve(listener, nil) which uses DefaultServeMux, so
+	// /debug/pprof/* endpoints are available on the metrics port unconditionally.
+	_ "net/http/pprof"
+
 	sreCommon "github.com/devopsext/sre/common"
 	sreProvider "github.com/devopsext/sre/provider"
 	utils "github.com/devopsext/utils"
@@ -249,18 +255,6 @@ func buildDefaultProcessors(options processor.DefaultOptions, obs *common.Observ
 	return nil
 }
 
-// /start - show list of commands and simple description
-// /k8s - list of k8s clusters
-// /k8s/cluster1 - type k8s cluster
-// /k8s/cluster2 - type k8s cluster
-// /grafana - current grafana
-// /aws/name-of-resource - some resource under aws
-// /alicloud - whole alicloud account
-// /some-command - custom command
-// /gitlab?
-// /datadog
-// /newrelic
-
 func Execute() {
 
 	rootCmd := &cobra.Command{
@@ -278,7 +272,7 @@ func Execute() {
 			logs.Info("Booting...")
 
 			// Metrics
-
+			//sre provider calls http.Serve(listener, nil) which uses DefaultServeMux !
 			prometheusOptions.Version = version
 			prometheus := sreProvider.NewPrometheusMeter(prometheusOptions, logs, stdout)
 			if utils.Contains(rootOptions.Metrics, "prometheus") && prometheus != nil {
@@ -328,7 +322,6 @@ func Execute() {
 	flags.StringVar(&prometheusOptions.URL, "prometheus-url", prometheusOptions.URL, "Prometheus endpoint url")
 	flags.StringVar(&prometheusOptions.Listen, "prometheus-listen", prometheusOptions.Listen, "Prometheus listen")
 	flags.StringVar(&prometheusOptions.Prefix, "prometheus-prefix", prometheusOptions.Prefix, "Prometheus prefix")
-
 	flags.StringVar(&telegramOptions.BotToken, "telegram-bot-token", telegramOptions.BotToken, "Telegram bot token")
 	flags.BoolVar(&telegramOptions.Debug, "telegram-debug", telegramOptions.Debug, "Telegram debug")
 	flags.IntVar(&telegramOptions.Timeout, "telegram-timeout", telegramOptions.Timeout, "Telegram timeout")
