@@ -1564,6 +1564,60 @@ func (de *DefaultFieldExecutor) Execute() ([]*DefaultFieldWrapper, error) {
 	return fields, nil
 }
 
+func (de *DefaultFieldExecutor) fAskOpenAI(params map[string]interface{}) string {
+	apiKey, _ := params["apiKey"].(string)
+	model, _ := params["model"].(string)
+	baseURL, _ := params["baseURL"].(string)
+	timeout, _ := params["timeout"].(int)
+	if timeout == 0 {
+		timeout = 30
+	}
+
+	var messages []map[string]string
+	if rawMessages, ok := params["messages"].([]interface{}); ok {
+		for _, rawMsg := range rawMessages {
+			if msg, ok := rawMsg.(map[string]interface{}); ok {
+				role, roleOk := msg["role"].(string)
+				content, contentOk := msg["content"].(string)
+				if roleOk && contentOk {
+					messages = append(messages, map[string]string{
+						"role":    role,
+						"content": content,
+					})
+				}
+			}
+		}
+	}
+
+	if len(messages) == 0 {
+		messages = append(messages, map[string]string{
+			"role":    "user",
+			"content": "Hello",
+		})
+	}
+
+	if apiKey == "" {
+		return "OpenAI API key is required"
+	}
+
+	options := vendors.OpenAIOptions{
+		APIKey:   apiKey,
+		Model:    model,
+		Timeout:  timeout,
+		Messages: messages,
+		BaseURL:  baseURL,
+	}
+
+	openAI := vendors.NewOpenAI(options)
+	response, err := openAI.CreateChatCompletion(options)
+	log.Printf("OpenAI response: %s", string(response))
+	if err != nil {
+		return fmt.Sprintf("OpenAI error: %s", err.Error())
+	}
+
+	return string(response)
+}
+
 func NewFieldExecutorTemplate(name string, content string, executor *DefaultFieldExecutor, observability *common.Observability) (*toolsRender.TextTemplate, map[string]any, error) {
 
 	funcs := make(map[string]any)
@@ -1582,6 +1636,8 @@ func NewFieldExecutorTemplate(name string, content string, executor *DefaultFiel
 	funcs["setError"] = func() string { return "" }
 	funcs["setInvisible"] = func() string { return "" }
 	funcs["setIconURL"] = func() string { return "" }
+
+	funcs["askOpenAI"] = executor.fAskOpenAI
 
 	templateOpts := toolsRender.TemplateOptions{
 		Name:    fmt.Sprintf("default-internal-%s", name),
